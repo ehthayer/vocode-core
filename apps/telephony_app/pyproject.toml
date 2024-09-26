@@ -13,7 +13,7 @@ python-dotenv = "^1.0.1"
 azure-cognitiveservices-speech = "^1.38.0"
 vocode = "0.1.113"
 vonage = "^3.16.0"
-
+libhoney = "^2.4.0"
 
 [build-system]
 requires = ["poetry-core"]

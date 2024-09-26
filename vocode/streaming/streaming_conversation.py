@@ -7,6 +7,7 @@ import re
 import threading
 import time
 import typing
+from datetime import datetime
 from typing import (
     Any,
     Awaitable,
@@ -25,6 +26,7 @@ from loguru import logger
 from sentry_sdk.tracing import Span
 
 from vocode import conversation_id as ctx_conversation_id
+from vocode.marrlabs.utils.call_event_reporter import CallEventReporter
 from vocode.streaming.action.worker import ActionsWorker
 from vocode.streaming.agent.base_agent import (
     AgentInput,
@@ -594,7 +596,9 @@ class StreamingConversation(AudioPipeline[OutputDeviceType]):
     ):
         self.id = conversation_id or create_conversation_id()
         ctx_conversation_id.set(self.id)
-
+        self.call_start: Optional[float] = None
+        self.call_event_reporter = CallEventReporter()
+        self.call_event_reporter.new_call("n/a", self.id)
         self.output_device = output_device
         self.transcriber = transcriber
         self.agent = agent
@@ -688,6 +692,8 @@ class StreamingConversation(AudioPipeline[OutputDeviceType]):
         return ConversationStateManager(conversation=self)
 
     async def start(self, mark_ready: Optional[Callable[[], Awaitable[None]]] = None):
+        self.call_start = datetime.utcnow().timestamp()
+        self.call_event_reporter.call_start(self.call_start)
         self.transcriber.start()
         self.transcriber.streaming_conversation = self
         self.transcriptions_worker.start()

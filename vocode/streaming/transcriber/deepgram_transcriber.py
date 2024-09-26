@@ -166,6 +166,7 @@ class DeepgramTranscriber(BaseAsyncTranscriber[DeepgramTranscriberConfig]):
                 1000,
             )  # Deepgram recommends using at least 1000ms since the tick period is ~1s
         url_params.update(extra_params)
+        self.streaming_conversation.call_event_reporter.set_deepgram_params(extra_params)
         return f"{self.ws_url}/v1/listen?{urlencode(url_params, doseq=True)}"
 
     async def _run_loop(self):
@@ -372,6 +373,15 @@ class DeepgramTranscriber(BaseAsyncTranscriber[DeepgramTranscriberConfig]):
                 ):
                     return True, log_params
         return False, log_params
+    def _audio_latency(self) -> float:
+        '''
+        Difference between wall-clock call duration and audio_cursor call time
+
+        Try to get a signal for telephony provider jitter/drops, etc.
+        :return:
+        '''
+        call_dur = datetime.utcnow().timestamp() - self.streaming_conversation.call_start
+        return call_dur - self.audio_cursor
 
     def calculate_time_silent(self, deepgram_transcription_result: DeepgramTranscriptionResult):
         end = deepgram_transcription_result.start + deepgram_transcription_result.duration
@@ -434,7 +444,7 @@ class DeepgramTranscriber(BaseAsyncTranscriber[DeepgramTranscriberConfig]):
                             logger.debug(f"Got error {e} in Deepgram receiver")
                             break
                         data = json.loads(msg)
-
+                        request_id = data.get('metadata', {}).get('request_id')
                         if "start" in data and "duration" in data:
                             self._track_transcription_latency(
                                 start=data["start"],
@@ -485,6 +495,27 @@ class DeepgramTranscriber(BaseAsyncTranscriber[DeepgramTranscriberConfig]):
                                 is_final_ts=is_final_ts,
                                 output_ts=output_ts,
                             )
+
+                            try:
+                                # NOTE: also have tried latency_sec = output_ts - is_final_ts when it's available
+                                # but that is not here and not in our dev/prod system at the moment.
+                                if len(words_buffer) > 0:
+                                    deepgram_ts = words_buffer[-1].get('end')
+                                    latency_sec = self.audio_cursor - deepgram_ts
+                                    self.streaming_conversation.call_event_reporter.report_asr_latency(
+                                        latency_sec,
+                                        self._audio_latency(),
+                                        final=deepgram_response.is_final if isinstance(deepgram_response,
+                                                                                       DeepgramTranscriptionResult) else False,
+                                        confidence=buffer_avg_confidence
+                                    )
+                            except Exception:
+                                logger.exception("reporting asr latency")
+
+                            self.streaming_conversation.call_event_reporter.report_deepgram_result(request_id,
+                                                                                                   deepgram_response)
+
+
                             self.produce_nonblocking(
                                 Transcription(
                                     message=buffer,
@@ -506,12 +537,27 @@ class DeepgramTranscriber(BaseAsyncTranscriber[DeepgramTranscriberConfig]):
                                 and deepgram_response.top_choice.transcript
                                 and deepgram_response.top_choice.confidence > 0.0
                             ):
+                                self.streaming_conversation.call_event_reporter.report_deepgram_result(request_id,
+                                                                                                       deepgram_response)
                                 if not deepgram_response.is_final:
                                     interim_message = (
                                         f"{buffer} {deepgram_response.top_choice.transcript}"
                                     )
                                 else:
                                     interim_message = buffer
+
+                                    try:
+                                        if len(deepgram_response.top_choice.words) > 0:
+                                            deepgram_ts = deepgram_response.top_choice.words[-1].get('end')
+                                            latency_sec = self.audio_cursor - deepgram_ts
+                                            self.streaming_conversation.call_event_reporter.report_asr_latency(
+                                                latency_sec,
+                                                self._audio_latency(),
+                                                final=deepgram_response.is_final,
+                                                confidence=deepgram_response.top_choice.confidence
+                                            )
+                                    except Exception:
+                                        logger.exception("reporting asr latency")
 
                                 self.produce_nonblocking(
                                     Transcription(
