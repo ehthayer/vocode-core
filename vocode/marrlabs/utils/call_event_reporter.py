@@ -290,7 +290,6 @@ if __name__ == "__main__":
         call_event_reporter.new_call(f"unit_test_uuid_{c}", f"unit_test_conversation_id_{c}")
         call_event_reporter.call_start(datetime.utcnow().timestamp())
         call_event_reporter.set_deepgram_params({})
-        call_event_reporter.set_tts_params('11labs', {"test": "testval"})
         for i in range(5):
             call_event_reporter.report_asr_latency(0.5, 0.0, True, 0.9)
             call_event_reporter.stamp_agent_begin()
