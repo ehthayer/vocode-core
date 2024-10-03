@@ -285,8 +285,8 @@ class CallEventReporter:
 
 if __name__ == "__main__":
     print('*** test ***')
+    call_event_reporter = CallEventReporter()
     for c in range(3):
-        call_event_reporter = CallEventReporter()
         call_event_reporter.new_call(f"unit_test_uuid_{c}", f"unit_test_conversation_id_{c}")
         call_event_reporter.call_start(datetime.utcnow().timestamp())
         call_event_reporter.set_deepgram_params({})
